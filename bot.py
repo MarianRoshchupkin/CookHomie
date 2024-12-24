@@ -7,7 +7,12 @@ import requests
 from datetime import datetime
 from dotenv import load_dotenv
 
-from telegram import (Update)
+from telegram import (
+    Update,
+    ReplyKeyboardMarkup,
+    KeyboardButton,
+    ReplyKeyboardRemove
+)
 from telegram.ext import (
     ApplicationBuilder,
     CommandHandler,
@@ -33,7 +38,6 @@ logging.basicConfig(
     level=logging.INFO
 )
 logger = logging.getLogger(__name__)
-
 
 class GigaChatAPI:
     def __init__(self, authorization_key):
@@ -116,17 +120,34 @@ def get_or_create_user(update: Update):
         db.close()
 
 
+def get_main_menu_keyboard():
+    return [
+        [KeyboardButton("/setallergies"), KeyboardButton("/showallergies")],
+        [KeyboardButton("/setdiets"), KeyboardButton("/showdiets")],
+        [KeyboardButton("/setingredients"), KeyboardButton("/showingredients")],
+        [KeyboardButton("/getrecipe")],
+        [KeyboardButton("/help")]
+    ]
+
+
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = get_or_create_user(update)
     if user:
+        reply_markup = ReplyKeyboardMarkup(
+            get_main_menu_keyboard(),
+            resize_keyboard=True,
+            one_time_keyboard=False
+        )
         await update.message.reply_text(
-            "Добро пожаловать в MealPlanner Bot!\n"
-            "Введите /help, чтобы узнать о доступных командах."
+            "Добро пожаловать в MealPlanner Bot!",
+            reply_markup=reply_markup
         )
     else:
         await update.message.reply_text(
-            "Произошла ошибка при регистрации пользователя. Попробуйте позже."
+            "Произошла ошибка при регистрации пользователя. Попробуйте позже.",
+            reply_markup=ReplyKeyboardRemove()
         )
+
 
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     help_text = (
@@ -134,13 +155,20 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "/start - Запустить или перезапустить бота\n"
         "/help - Показать это справочное сообщение\n"
         "/setallergies - Указать или обновить список своих аллергий\n"
+        "/showallergies - Показать текущие аллергии\n"
         "/setdiets - Указать или обновить свои пищевые предпочтения\n"
+        "/showdiets - Показать текущие диетические предпочтения\n"
         "/setingredients - Указать или обновить список ингредиентов в холодильнике\n"
+        "/showingredients - Показать текущие ингредиенты\n"
         "/getrecipe - Получить рецепт на основе ваших предпочтений\n"
         "/cancel - Отменить текущую операцию\n"
     )
-    await update.message.reply_text(help_text)
-
+    reply_markup = ReplyKeyboardMarkup(
+        get_main_menu_keyboard(),
+        resize_keyboard=True,
+        one_time_keyboard=False
+    )
+    await update.message.reply_text(help_text, reply_markup=reply_markup)
 
 SET_ALLERGIES, SET_DIETS, SET_INGREDIENTS = range(3)
 
@@ -151,6 +179,7 @@ async def set_allergies_command(update: Update, context: ContextTypes.DEFAULT_TY
         "Например: молоко, яйца, арахис"
     )
     return SET_ALLERGIES
+
 
 async def allergies_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = get_or_create_user(update)
@@ -165,7 +194,12 @@ async def allergies_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         for allergy in allergy_list:
             db.add(Allergy(user_id=user.id, allergy_name=allergy))
         db.commit()
-        await update.message.reply_text(f"Ваши аллергии обновлены: {', '.join(allergy_list)}")
+        reply_markup = ReplyKeyboardMarkup(
+            get_main_menu_keyboard(),
+            resize_keyboard=True,
+            one_time_keyboard=False
+        )
+        await update.message.reply_text(f"Ваши аллергии обновлены: {', '.join(allergy_list)}", reply_markup=reply_markup)
     except Exception as e:
         logger.error(f"Ошибка при обновлении аллергий: {e}")
         await update.message.reply_text("Произошла ошибка при обновлении списка аллергий.")
@@ -181,6 +215,7 @@ async def set_diets_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
     return SET_DIETS
 
+
 async def diets_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = get_or_create_user(update)
     if not user:
@@ -194,7 +229,12 @@ async def diets_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         for diet in diet_list:
             db.add(Diet(user_id=user.id, diet_name=diet))
         db.commit()
-        await update.message.reply_text(f"Ваши диетические предпочтения обновлены: {', '.join(diet_list)}")
+        reply_markup = ReplyKeyboardMarkup(
+            get_main_menu_keyboard(),
+            resize_keyboard=True,
+            one_time_keyboard=False
+        )
+        await update.message.reply_text(f"Ваши диетические предпочтения обновлены: {', '.join(diet_list)}", reply_markup=reply_markup)
     except Exception as e:
         logger.error(f"Ошибка при обновлении диет: {e}")
         await update.message.reply_text("Произошла ошибка при обновлении диет.")
@@ -202,12 +242,14 @@ async def diets_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         db.close()
     return ConversationHandler.END  # Завершить беседу
 
+
 async def set_ingredients_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
         "Пожалуйста, перечислите ингредиенты в вашем холодильнике через запятую.\n"
         "Например: курица, морковь, лук"
     )
-    return SET_INGREDIENTS  # Перейти к состоянию установки ингредиентов
+    return SET_INGREDIENTS
+
 
 async def ingredients_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = get_or_create_user(update)
@@ -218,13 +260,16 @@ async def ingredients_handler(update: Update, context: ContextTypes.DEFAULT_TYPE
     ingredients_list = [i.strip() for i in update.message.text.split(",") if i.strip()]
     db = SessionLocal()
     try:
-        # Удаляем существующие ингредиенты пользователя
         db.query(Ingredient).filter(Ingredient.user_id == user.id).delete()
-        # Добавляем новые ингредиенты
         for ing in ingredients_list:
             db.add(Ingredient(user_id=user.id, ingredient_name=ing))
         db.commit()
-        await update.message.reply_text(f"Список ингредиентов обновлён: {', '.join(ingredients_list)}")
+        reply_markup = ReplyKeyboardMarkup(
+            get_main_menu_keyboard(),
+            resize_keyboard=True,
+            one_time_keyboard=False
+        )
+        await update.message.reply_text(f"Список ингредиентов обновлён: {', '.join(ingredients_list)}", reply_markup=reply_markup)
     except Exception as e:
         logger.error(f"Ошибка при обновлении ингредиентов: {e}")
         await update.message.reply_text("Произошла ошибка при обновлении списка ингредиентов.")
@@ -232,9 +277,79 @@ async def ingredients_handler(update: Update, context: ContextTypes.DEFAULT_TYPE
         db.close()
     return ConversationHandler.END  # Завершить беседу
 
+
 async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("Действие отменено.")
+    reply_markup = ReplyKeyboardMarkup(
+        get_main_menu_keyboard(),
+        resize_keyboard=True,
+        one_time_keyboard=False
+    )
+    await update.message.reply_text("Действие отменено.", reply_markup=reply_markup)
     return ConversationHandler.END
+
+
+async def show_allergies(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user = get_or_create_user(update)
+    if not user:
+        await update.message.reply_text("Ошибка при получении данных пользователя.")
+        return
+
+    db = SessionLocal()
+    try:
+        user_allergies = db.query(Allergy).filter(Allergy.user_id == user.id).all()
+        if user_allergies:
+            allergies = "\n".join(f"- {allergy.allergy_name}" for allergy in user_allergies)
+            await update.message.reply_text(f"Ваши аллергии:\n{allergies}")
+        else:
+            await update.message.reply_text("Вы не указали никаких аллергий.")
+    except Exception as e:
+        logger.error(f"Ошибка при отображении аллергий: {e}")
+        await update.message.reply_text("Произошла ошибка при отображении аллергий.")
+    finally:
+        db.close()
+
+
+async def show_diets(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user = get_or_create_user(update)
+    if not user:
+        await update.message.reply_text("Ошибка при получении данных пользователя.")
+        return
+
+    db = SessionLocal()
+    try:
+        user_diets = db.query(Diet).filter(Diet.user_id == user.id).all()
+        if user_diets:
+            diets = "\n".join(f"- {diet.diet_name}" for diet in user_diets)
+            await update.message.reply_text(f"Ваши диетические предпочтения:\n{diets}")
+        else:
+            await update.message.reply_text("Вы не указали никаких диетических предпочтений.")
+    except Exception as e:
+        logger.error(f"Ошибка при отображении диет: {e}")
+        await update.message.reply_text("Произошла ошибка при отображении диет.")
+    finally:
+        db.close()
+
+
+async def show_ingredients(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user = get_or_create_user(update)
+    if not user:
+        await update.message.reply_text("Ошибка при получении данных пользователя.")
+        return
+
+    db = SessionLocal()
+    try:
+        user_ingredients = db.query(Ingredient).filter(Ingredient.user_id == user.id).all()
+        if user_ingredients:
+            ingredients = "\n".join(f"- {ingredient.ingredient_name}" for ingredient in user_ingredients)
+            await update.message.reply_text(f"Ваши ингредиенты:\n{ingredients}")
+        else:
+            await update.message.reply_text("Вы не указали никаких ингредиентов.")
+    except Exception as e:
+        logger.error(f"Ошибка при отображении ингредиентов: {e}")
+        await update.message.reply_text("Произошла ошибка при отображении ингредиентов.")
+    finally:
+        db.close()
+
 
 async def get_recipe(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = get_or_create_user(update)
@@ -268,12 +383,14 @@ async def get_recipe(update: Update, context: ContextTypes.DEFAULT_TYPE):
     finally:
         db.close()
 
+
 async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """
     Обработчик для всех остальных текстовых сообщений,
     которые не распознаны как команды или находятся вне беседы.
     """
     await update.message.reply_text("Я не понял сообщение. Используйте /help, чтобы увидеть список команд.")
+
 
 def main():
     init_db()
@@ -307,18 +424,20 @@ def main():
         fallbacks=[CommandHandler('cancel', cancel)]
     )
 
-    # Добавляем ConversationHandlers в приложение
     application.add_handler(allergies_conv_handler)
     application.add_handler(diets_conv_handler)
     application.add_handler(ingredients_conv_handler)
 
-    # Обработчик команды /getrecipe
+    application.add_handler(CommandHandler("showallergies", show_allergies))
+
+    application.add_handler(CommandHandler("showdiets", show_diets))
+
+    application.add_handler(CommandHandler("showingredients", show_ingredients))
+
     application.add_handler(CommandHandler("getrecipe", get_recipe))
 
-    # Обработчик всех остальных текстовых сообщений
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text))
 
-    # Запуск бота
     application.run_polling()
 
 if __name__ == "__main__":
